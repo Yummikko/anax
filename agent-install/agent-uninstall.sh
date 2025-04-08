@@ -242,14 +242,10 @@ function removeNodeFromLocalAndManagementHub() {
         fi
     else
         log_info "Node is not registered, skip unregister..."
-        if [[ "$DELETE_EX_NODE" == "true" ]]; then
-            log_info "Remove node from the management hub..."
-            deleteNodeFromManagementHub $NODE_ID
-        fi
     fi
 
-    if [[ -n $NODE_STATE ]] && [[ "$DELETE_EX_NODE" == "true" ]]; then
-        verifyNodeRemovedFromManagementHub $NODE_ID
+    if [[ "$DELETE_EX_NODE" == "true" ]]; then
+        deleteAndVerifyNodeFromManagementHub $NODE_ID
     fi
 
     log_debug "removeNodeFromLocalAndManagementHub() end"
@@ -290,43 +286,40 @@ function getEscapedExchangeUserAuth() {
 	echo "${escaped_auth}"
 }
 
-function deleteNodeFromManagementHub() {
-    log_debug "deleteNodeFromManagementHub() begin"
+function deleteAndVerifyNodeFromManagementHub() {
+    log_debug "deleteAndVerifyNodeFromManagementHub() begin"
 
     escaped_USER_AUTH=$(getEscapedExchangeUserAuth)
     EXPORT_EX_USER_AUTH_CMD="export HZN_EXCHANGE_USER_AUTH=${escaped_USER_AUTH}"
     local node_id=$1
 
+    # Step 1: Delete the node
     log_info "Deleting node ${node_id} from the management hub..."
-
     set +e
-    $KUBECTL exec ${POD_ID} -n ${AGENT_NAMESPACE} -c "anax" -- bash -c "${EXPORT_EX_USER_AUTH_CMD}; hzn exchange node remove ${node_id} -f"
+    $KUBECTL exec ${POD_ID} -n ${AGENT_NAMESPACE} -c "anax" -- bash -c "${EXPORT_EX_USER_AUTH_CMD}; hzn exchange node remove ${node_id} -f" >/dev/null 2>&1  
+    local delete_exit_code=$?
     set -e
 
-    log_debug "deleteNodeFromManagementHub() end"
-}
-
-function verifyNodeRemovedFromManagementHub() {
-    log_debug "verifyNodeRemovedFromManagementHub() begin"
-
-    escaped_USER_AUTH=$(getEscapedExchangeUserAuth)
-    EXPORT_EX_USER_AUTH_CMD="export HZN_EXCHANGE_USER_AUTH=${escaped_USER_AUTH}"
-    local node_id=$1
-
-    log_info "Verifying node ${node_id} is removed from the management hub..."
-
-    set +e
-    $KUBECTL exec ${POD_ID} -n ${AGENT_NAMESPACE} -c "anax" -- bash -c "${EXPORT_EX_USER_AUTH_CMD}; hzn exchange node list ${node_id}" >/dev/null 2>&1
-    local exit_code=$?
-    set -e
-
-    if [ $exit_code -eq 8 ]; then
-        log_info "Node ${node_id} has been successfully removed"
+    if [ $delete_exit_code -eq 0 ] || [ $delete_exit_code -eq 8 ]; then
+        log_info "Deletion: Node ${node_id} has been successfully removed"
     else
-        log_warning "Node was not removed from the management hub"
+        log_warning "Deletion: Node ${node_id} removal failed with exit code $delete_exit_code"
     fi
 
-    log_debug "verifyNodeRemovedFromManagementHub() end"
+    # Step 2: Verify the removal
+    log_info "Verifying removal of node ${node_id} from the management hub..."
+    set +e
+    $KUBECTL exec ${POD_ID} -n ${AGENT_NAMESPACE} -c "anax" -- bash -c "${EXPORT_EX_USER_AUTH_CMD}; hzn exchange node list ${node_id}" >/dev/null 2>&1
+    local verify_exit_code=$?
+    set -e
+
+    if [ $verify_exit_code -eq 8 ]; then
+        log_info "Verification: Node ${node_id} removal confirmed"
+    else
+        log_warning "Verification: Node ${node_id} still exists in the management hub"
+    fi
+
+    log_debug "deleteAndVerifyNodeFromManagementHub() end"
 }
 
 function deleteAgentResources() {
