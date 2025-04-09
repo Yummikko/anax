@@ -24,7 +24,7 @@ jobs:
 
   # Migrating workflow causes run number to be reset to 1, offset so our versions don't go back in time.
   offset-build-number:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     outputs: 
       BUILD_NUMBER: ${{ steps.offset.outputs.BUILD_NUMBER }}
     steps:
